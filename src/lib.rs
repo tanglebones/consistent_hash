@@ -1,6 +1,14 @@
 
 // ported from https://arxiv.org/pdf/2403.18682
 
+/// Trait for deterministic 64-bit RNGs used by `jump_back_hash`.
+pub trait Random64 {
+    /// Re-initialize the generator with the given seed.
+    fn reset_with_seed(&mut self, seed: u64);
+    /// Return the next 64-bit value.
+    fn next_long(&mut self) -> u64;
+}
+
 /// Simple deterministic 64-bit RNG (SplitMix64) to mirror Java-like `nextLong` behavior.
 /// Provides `reset_with_seed` and `next_long` similar to the Java snippet's API.
 struct SplitMix64 {
@@ -11,6 +19,9 @@ impl SplitMix64 {
     fn new(seed: u64) -> Self {
         Self { state: seed }
     }
+}
+
+impl Random64 for SplitMix64 {
     fn reset_with_seed(&mut self, seed: u64) {
         self.state = seed;
     }
@@ -31,13 +42,12 @@ impl SplitMix64 {
 /// ```
 ///
 /// Rust version keeps the same logic and bit‑level behavior. It uses a small
-/// deterministic RNG (SplitMix64) to provide `next_long()` values.
-pub fn jump_back_hash(k: u64, n: u32) -> u32 {
+/// deterministic RNG to provide `next_long()` values.
+pub fn jump_back_hash_with_rng<R: Random64>(k: u64, n: u32, rng: &mut R) -> u32 {
     if n <= 1 {
         return 0;
     }
 
-    let mut rng = SplitMix64::new(0);
     rng.reset_with_seed(k);
     let v = rng.next_long();
 
@@ -90,6 +100,13 @@ pub fn jump_back_hash(k: u64, n: u32) -> u32 {
     }
 
     0
+}
+
+/// Convenience wrapper that uses `SplitMix64` as the RNG implementation
+/// to preserve the original API.
+pub fn jump_back_hash(k: u64, n: u32) -> u32 {
+    let mut rng = SplitMix64::new(0);
+    jump_back_hash_with_rng(k, n, &mut rng)
 }
 
 #[cfg(test)]
