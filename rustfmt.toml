@@ -1,0 +1,4 @@
+# Rustfmt configuration
+# Use spaces (not tabs) for indentation and set indentation width to 2 spaces
+hard_tabs = false
+tab_spaces = 2
