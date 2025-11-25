@@ -2,6 +2,8 @@
 
 /// Trait for deterministic 64-bit RNGs used by `hash`.
 pub trait Random64 {
+  /// Create a new generator with a seed of 0.
+  fn new() -> Self;
   /// Re-initialize the generator with the given seed.
   fn reset_with_seed(&mut self, seed: u64);
   /// Return the next 64-bit value.
@@ -16,17 +18,26 @@ pub trait ConsistentHasher {
 
 /// Simple deterministic 64-bit RNG (SplitMix64) to mirror Java-like `nextLong` behavior.
 /// Provides `reset_with_seed` and `next_long` similar to the Java snippet's API.
-struct SplitMix64 {
+pub struct SplitMix64 {
   state: u64,
 }
 
 impl SplitMix64 {
-  fn new(seed: u64) -> Self {
+  fn from_seed(seed: u64) -> Self {
     Self { state: seed }
   }
 }
 
+impl Default for SplitMix64 {
+  fn default() -> Self {
+    SplitMix64::from_seed(0)
+  }
+}
+
 impl Random64 for SplitMix64 {
+  fn new() -> Self {
+    Self::default()
+  }
   fn reset_with_seed(&mut self, seed: u64) {
     self.state = seed;
   }
@@ -41,11 +52,14 @@ impl Random64 for SplitMix64 {
 }
 
 /// Stateful hasher that owns a pluggable RNG implementing `Random64` and provides `hash` as a method.
-pub struct JumpBackHasher<R: Random64> {
+pub struct JumpBackConsistentHasher<R: Random64 = SplitMix64> {
   rng: R,
 }
 
-impl<R: Random64> JumpBackHasher<R> {
+impl<R: Random64> JumpBackConsistentHasher<R> {
+  pub fn new_with_rng(rng: R) -> Self {
+    Self { rng }
+  }
   /// Construct a hasher from any RNG implementing `Random64`.
   pub fn from_rng(rng: R) -> Self {
     Self { rng }
@@ -118,63 +132,17 @@ impl<R: Random64> JumpBackHasher<R> {
   }
 }
 
-/// Convenience constructors for the default RNG `SplitMix64`.
-impl JumpBackHasher<SplitMix64> {
-  /// Create a new hasher with an internal SplitMix64 RNG.
-  pub fn new() -> Self {
-    Self {
-      rng: SplitMix64::new(0),
-    }
-  }
-}
-
-impl<R: Random64> ConsistentHasher for JumpBackHasher<R> {
+impl<R: Random64> ConsistentHasher for JumpBackConsistentHasher<R> {
   fn hash(&mut self, k: u64, n: u32) -> u32 {
     // Delegate to inherent method
-    JumpBackHasher::hash(self, k, n)
+    JumpBackConsistentHasher::hash(self, k, n)
   }
 }
 
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn jump_back_hash_trivial_cases() {
-    let mut hasher = JumpBackHasher::new();
-    assert_eq!(hasher.hash(0, 0), 0);
-    assert_eq!(hasher.hash(0, 1), 0);
-    assert_eq!(hasher.hash(1, 1), 0);
-    assert_eq!(hasher.hash(1, 1), 0);
-    assert_eq!(hasher.hash(0, 2), 0);
-    assert_eq!(hasher.hash(1, 2), 1);
-  }
-
-  #[test]
-  fn jump_back_hash_in_range() {
-    // Check many seeds and n that result is either 0 or < n
-    let mut hasher = JumpBackHasher::new();
-    for n in [2u32, 3, 4, 7, 16, 31, 32, 33, 1000] {
-      for k in [0u64, 1, 2, 123456789, u64::MAX - 1, u64::MAX] {
-        let r = hasher.hash(k, n);
-        assert!(r == 0 || r < n, "k={k}, n={n}, r={r}");
-      }
-    }
-  }
-
-  #[test]
-  fn jump_back_hasher_method_works() {
-    let mut hasher = JumpBackHasher::new();
-    for n in [0u32, 1, 2, 3, 10, 100] {
-      let mut pr = 0;
-      for k in [0u64, 1, 2, 123456789, u64::MAX] {
-        let r = hasher.hash(k, n);
-        assert!(
-          r == 0 || r < n || pr <= r,
-          "method: k={k}, n={n}, pr={pr}, r={r}"
-        );
-        pr = r;
-      }
+impl JumpBackConsistentHasher<SplitMix64> {
+  pub fn new() -> Self {
+    Self {
+      rng: SplitMix64::new(),
     }
   }
 }
@@ -210,24 +178,72 @@ impl ConsistentHasher for JumpConsistentHasher {
 }
 
 #[cfg(test)]
-mod tests_jump_consistent {
+mod tests {
   use super::*;
 
   #[test]
-  fn jump_consistent_trivial_cases() {
-    let mut hasher = JumpConsistentHasher::new();
-    assert_eq!(ConsistentHasher::hash(&mut hasher, 0, 0), 0);
-    assert_eq!(ConsistentHasher::hash(&mut hasher, 0, 1), 0);
-    assert_eq!(ConsistentHasher::hash(&mut hasher, 1, 1), 0);
+  fn jump_back_hash_trivial_cases() {
+    let mut jbh = JumpBackConsistentHasher::new();
+    let mut jh = JumpConsistentHasher::new();
+    assert_eq!(jbh.hash(0, 0), 0);
+    assert_eq!(jbh.hash(0, 1), 0);
+    assert_eq!(jbh.hash(1, 1), 0);
+    assert_eq!(jbh.hash(1, 1), 0);
+    assert_eq!(jbh.hash(0, 2), 0);
+    assert_eq!(jbh.hash(1, 2), 1);
+
+    assert_eq!(jh.hash(0, 0), 0);
+    assert_eq!(jh.hash(0, 1), 0);
+    assert_eq!(jh.hash(1, 1), 0);
+    assert_eq!(jh.hash(1, 1), 0);
+    assert_eq!(jh.hash(0, 2), 0);
+    assert_eq!(jh.hash(1, 2), 1);
   }
 
   #[test]
-  fn jump_consistent_in_range() {
-    let mut hasher = JumpConsistentHasher::new();
+  fn jump_back_hash_in_range() {
+    // Check many seeds and n that result is either 0 or < n
+    let mut jbh = JumpBackConsistentHasher::new();
+    let mut jh = JumpConsistentHasher::new();
+
     for n in [2u32, 3, 4, 7, 16, 31, 32, 33, 1000] {
       for k in [0u64, 1, 2, 123456789, u64::MAX - 1, u64::MAX] {
-        let r = ConsistentHasher::hash(&mut hasher, k, n);
-        assert!(r < n, "k={k}, n={n}, r={r}");
+        {
+          let r = jbh.hash(k, n);
+          assert!(r == 0 || r < n, "k={k}, n={n}, r={r}");
+        }
+        {
+          let r = jh.hash(k, n);
+          assert!(r == 0 || r < n, "k={k}, n={n}, r={r}");
+        }
+      }
+    }
+  }
+
+  #[test]
+  fn jump_back_hasher_method_works() {
+    let mut jbh = JumpBackConsistentHasher::new();
+    let mut jh = JumpConsistentHasher::new();
+    for n in [0u32, 1, 2, 3, 10, 100] {
+      let mut pr_jb = 0;
+      let mut pr_j = 0;
+      for k in [0u64, 1, 2, 123456789, u64::MAX] {
+        {
+          let r = jbh.hash(k, n);
+          assert!(
+            r == 0 || r < n || pr_jb <= r,
+            "jbh: k={k}, n={n}, pr={pr_jb}, r={r}"
+          );
+          pr_jb = r;
+        }
+        {
+          let r = jh.hash(k, n);
+          assert!(
+            r == 0 || r < n || pr_j <= r,
+            "jh: k={k}, n={n}, pr={pr_j}, r={r}"
+          );
+          pr_j = r;
+        }
       }
     }
   }
