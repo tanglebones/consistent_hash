@@ -1,5 +1,6 @@
-use criterion::{ criterion_group, criterion_main, BenchmarkId, Criterion};
 use consistent_hash::{ConsistentHasher, JumpBackConsistentHasher, JumpConsistentHasher};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use std::time::Duration;
 
 fn bench_compare(c: &mut Criterion) {
   // Pre-generate a fixed set of keys so we don't measure key generation.
@@ -49,5 +50,5 @@ fn bench_compare(c: &mut Criterion) {
   group.finish();
 }
 
-criterion_group!(benches, bench_compare);
+criterion_group!(name = benches; config = Criterion::default().sample_size(10).measurement_time(Duration::from_secs(30)); targets = bench_compare);
 criterion_main!(benches);

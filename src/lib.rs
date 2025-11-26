@@ -182,7 +182,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn jump_back_hash_trivial_cases() {
+  fn trivial_cases() {
     let mut jbh = JumpBackConsistentHasher::new();
     let mut jh = JumpConsistentHasher::new();
     assert_eq!(jbh.hash(0, 0), 0);
@@ -201,7 +201,7 @@ mod tests {
   }
 
   #[test]
-  fn jump_back_hash_in_range() {
+  fn hash_in_range() {
     // Check many seeds and n that result is either 0 or < n
     let mut jbh = JumpBackConsistentHasher::new();
     let mut jh = JumpConsistentHasher::new();
@@ -221,7 +221,7 @@ mod tests {
   }
 
   #[test]
-  fn jump_back_hasher_method_works() {
+  fn buckets_move_forward() {
     let mut jbh = JumpBackConsistentHasher::new();
     let mut jh = JumpConsistentHasher::new();
     for n in [0u32, 1, 2, 3, 10, 100] {
@@ -246,5 +246,47 @@ mod tests {
         }
       }
     }
+  }
+
+  #[test]
+  fn entries_evenly_distributed() {
+    let mut jbh = JumpBackConsistentHasher::new();
+    let mut jh = JumpConsistentHasher::new();
+    const BUCKET_COUNT: usize = 1024;
+
+    let mut jb_counts = [0u32; BUCKET_COUNT];
+    let mut j_counts = [0u32; BUCKET_COUNT];
+    const FACTOR: usize = 10000;
+    const ENTRIES: usize = BUCKET_COUNT * FACTOR;
+    for k in 0..ENTRIES {
+      let i = jbh.hash(k as u64, BUCKET_COUNT as u32) as usize;
+      jb_counts[i] += 1;
+      let i = jh.hash(k as u64, BUCKET_COUNT as u32) as usize;
+      j_counts[i] += 1;
+    }
+
+    {
+      let mut min = u32::MAX;
+      let mut max = 0;
+
+      for c in jb_counts {
+        min = min.min(c);
+        max = max.max(c);
+      }
+      // println!("jbh: min={min}, max={max}");
+      assert!(min >= (FACTOR * 95 / 100) as u32 && min <= (FACTOR * 105 / 100) as u32);
+    }
+    {
+      let mut min = u32::MAX;
+      let mut max = 0;
+
+      for c in j_counts {
+        min = min.min(c);
+        max = max.max(c);
+      }
+      // println!("jh: min={min}, max={max}");
+      assert!(min >= (FACTOR * 95 / 100) as u32 && min <= (FACTOR * 105 / 100) as u32);
+    }
+
   }
 }
